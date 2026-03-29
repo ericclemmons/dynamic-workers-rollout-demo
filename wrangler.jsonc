@@ -1,0 +1,24 @@
+{
+  "name": "dynamic-workers-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-24",
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROLLOUT",
+        "class_name": "RolloutConfig"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["RolloutConfig"]
+    }
+  ]
+}
