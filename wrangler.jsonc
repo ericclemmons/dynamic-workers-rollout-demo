@@ -7,6 +7,15 @@
       "binding": "LOADER"
     }
   ],
+  "kv_namespaces": [
+    {
+      // Stores deployed worker source code, keyed by "<service>-v<version>"
+      // (e.g. "layout-v3", "api-v7"). In production, CI/CD or PR builds
+      // would write code here; the gateway reads it on demand.
+      "binding": "CODE_STORE",
+      "id": "dynamic-workers-demo-code"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

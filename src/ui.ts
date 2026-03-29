@@ -212,57 +212,7 @@ export function renderUI(): string {
   }
 
   .user-slider-row input[type="range"] { flex: 1; height: 4px; }
-  .user-slider-row input[type="range"]:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-  .user-slider-row input[type="range"]:disabled::-webkit-slider-thumb {
-    background: var(--text-dim);
-    box-shadow: none;
-    cursor: default;
-  }
   .user-slider-row .version-badge { font-size: 10px; padding: 1px 6px; }
-  .user-slider-row .version-badge.synced { opacity: 0.4; }
-
-  .toggle-switch {
-    position: relative;
-    width: 36px;
-    height: 20px;
-    flex-shrink: 0;
-  }
-  .toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-  .toggle-track {
-    position: absolute;
-    inset: 0;
-    background: var(--surface);
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    cursor: pointer;
-    transition: background 0.2s, border-color 0.2s;
-  }
-  .toggle-track::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--text-dim);
-    transition: transform 0.2s, background 0.2s;
-  }
-  .toggle-switch input:checked + .toggle-track {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .toggle-switch input:checked + .toggle-track::after {
-    transform: translateX(16px);
-    background: white;
-  }
 
   .users-empty {
     text-align: center;
@@ -379,8 +329,23 @@ export function renderUI(): string {
     font-weight: 700;
   }
 
+  .mixer-versions .left,
+  .mixer-versions .right {
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
   .mixer-versions .left { color: var(--text-dim); }
+  .mixer-versions .left:hover { background: var(--surface); color: var(--text); }
   .mixer-versions .right { color: var(--accent); }
+  .mixer-versions .right:hover { background: rgba(99,102,241,0.15); }
+  .mixer-versions .left.disabled,
+  .mixer-versions .right.disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
+  }
   .mixer-versions .center {
     font-size: 9px;
     color: var(--text-dim);
@@ -454,9 +419,9 @@ export function renderUI(): string {
     <div class="section-title">Layout Service — Rollout Mixer</div>
     <div class="mixer" id="layout-mixer">
       <div class="mixer-versions">
-        <span class="left" id="mixer-left-label">v1</span>
+        <span class="left" id="mixer-left-label" onclick="jumpVersion(-1)">v1</span>
         <span class="center" id="mixer-current-label">v1</span>
-        <span class="right" id="mixer-right-label">v2</span>
+        <span class="right" id="mixer-right-label" onclick="jumpVersion(1)">v2</span>
       </div>
       <div class="mixer-track">
         <div class="center-mark"></div>
@@ -468,12 +433,22 @@ export function renderUI(): string {
         <span id="mixer-right-pct">0%</span>
       </div>
     </div>
-    <div class="slider-group">
-      <div class="slider-label">
-        <span class="name">API Service</span>
-        <span class="version-badge" id="api-badge">v1</span>
+    <div class="section-title" style="margin-top:16px">API Service — Rollout Mixer</div>
+    <div class="mixer" id="api-mixer">
+      <div class="mixer-versions">
+        <span class="left" id="api-mixer-left-label" onclick="jumpApiVersion(-1)">—</span>
+        <span class="center" id="api-mixer-current-label">v1</span>
+        <span class="right" id="api-mixer-right-label" onclick="jumpApiVersion(1)">v2</span>
       </div>
-      <input type="range" id="api-slider" class="api-slider" min="1" max="10" value="1">
+      <div class="mixer-track">
+        <div class="center-mark"></div>
+        <input type="range" id="api-mixer-slider" class="api-slider" min="0" max="100" value="50">
+      </div>
+      <div class="mixer-pct">
+        <span id="api-mixer-left-pct">0%</span>
+        <span id="api-mixer-current-pct" class="active">100%</span>
+        <span id="api-mixer-right-pct">0%</span>
+      </div>
     </div>
     <div class="presets">
       <button class="preset-btn" onclick="resetAll()">Reset to v1</button>
@@ -483,8 +458,7 @@ export function renderUI(): string {
   <div class="section" style="flex: 1; overflow-y: auto;">
     <div class="section-title">Users</div>
     <div class="add-user-row">
-      <input type="text" id="new-user-name" placeholder="User name..." onkeydown="if(event.key==='Enter')addUser()">
-      <button class="btn" onclick="addUser()">Add</button>
+      <button class="btn" onclick="addUser()" style="width:100%">+ Add User</button>
     </div>
     <div id="users-list">
       <div class="users-empty">Add users to see per-user version targeting</div>
@@ -508,7 +482,7 @@ const API = "";
 const MAX_VERSION = 10;
 const GRID_SIZE = 42; // 6x7
 
-let state = { layoutBase: 1, layoutBalance: 50, apiVersion: 1, users: {} };
+let state = { layoutBase: 1, layoutBalance: 50, apiBase: 1, apiBalance: 50, users: {} };
 let refreshTimer = null;
 // Wavefront state
 let cellTargets = [];
@@ -516,11 +490,9 @@ let waveRunning = false;
 let waveDirty = false;
 const STAGGER_MS = 30;
 
-// --- Mixer math ---
+// --- Mixer math (shared for layout and API) ---
 // balance 0=100% prev, 50=100% current, 100=100% next
-function getMixerInfo() {
-  const base = state.layoutBase;
-  const bal = state.layoutBalance;
+function getMixerInfo(base, bal) {
   const prev = Math.max(1, base - 1);
   const next = Math.min(MAX_VERSION, base + 1);
 
@@ -538,13 +510,24 @@ function getMixerInfo() {
   return { base, prev, next, leftPct, rightPct, currentPct };
 }
 
-// Deterministic version for a cell index based on mixer balance
-function resolveLayoutVersion(cellIndex) {
-  const { base, prev, next, leftPct, rightPct } = getMixerInfo();
-  // Use cell position to decide: lower indices get the "other" version first
-  const threshold = cellIndex / GRID_SIZE * 100;
-  if (leftPct > 0 && threshold < leftPct) return prev;
-  if (rightPct > 0 && threshold < rightPct) return next;
+// Simple string hash → 0–99. Deterministic: same userId always lands
+// in the same spot on the ring, so rollouts are stable per-user.
+function hashToRing(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return ((h % 100) + 100) % 100; // ensure positive 0–99
+}
+
+// Consistent-hash rollout: userId hashes to a ring position.
+// As the balance arc widens, more positions fall inside → more
+// users get the new (or previous) version. Same user never flickers.
+function resolveVersion(base, bal, userId) {
+  const { prev, next, leftPct, rightPct } = getMixerInfo(base, bal);
+  const pos = hashToRing(userId);
+  if (leftPct > 0 && pos < leftPct) return prev;
+  if (rightPct > 0 && pos < rightPct) return next;
   return base;
 }
 
@@ -552,31 +535,39 @@ function resolveLayoutVersion(cellIndex) {
 async function init() {
   const res = await fetch(API + "/api/state");
   const s = await res.json();
-  // Handle stale DO state from before the mixer refactor
-  state.layoutBase = s.layoutBase || s.layoutVersion || 1;
+  state.layoutBase = s.layoutBase || 1;
   state.layoutBalance = s.layoutBalance ?? 50;
-  state.apiVersion = s.apiVersion || 1;
+  state.apiBase = s.apiBase || s.apiVersion || 1;
+  state.apiBalance = s.apiBalance ?? 50;
   state.users = s.users || {};
   document.getElementById("mixer-slider").value = state.layoutBalance;
-  document.getElementById("api-slider").value = state.apiVersion;
-  updateMixer();
-  updateApiBadge();
+  document.getElementById("api-mixer-slider").value = state.apiBalance;
+  updateMixer("layout");
+  updateMixer("api");
   renderUsers();
   renderGrid();
   startRefresh();
 }
 
-// --- Mixer UI updates ---
-function updateMixer() {
-  const { base, prev, next, leftPct, rightPct, currentPct } = getMixerInfo();
+// --- Mixer UI updates (works for both layout and api) ---
+function updateMixer(service) {
+  const isLayout = service === "layout";
+  const base = isLayout ? state.layoutBase : state.apiBase;
+  const bal = isLayout ? state.layoutBalance : state.apiBalance;
+  const prefix = isLayout ? "mixer" : "api-mixer";
+  const { prev, next, leftPct, rightPct, currentPct } = getMixerInfo(base, bal);
 
-  document.getElementById("mixer-left-label").textContent = base <= 1 ? "—" : "v" + prev;
-  document.getElementById("mixer-current-label").textContent = "v" + base;
-  document.getElementById("mixer-right-label").textContent = base >= MAX_VERSION ? "—" : "v" + next;
+  const leftEl = document.getElementById(prefix + "-left-label");
+  const rightEl = document.getElementById(prefix + "-right-label");
+  leftEl.textContent = base <= 1 ? "—" : "v" + prev;
+  leftEl.className = "left" + (base <= 1 ? " disabled" : "");
+  document.getElementById(prefix + "-current-label").textContent = "v" + base;
+  rightEl.textContent = base >= MAX_VERSION ? "—" : "v" + next;
+  rightEl.className = "right" + (base >= MAX_VERSION ? " disabled" : "");
 
-  const lp = document.getElementById("mixer-left-pct");
-  const cp = document.getElementById("mixer-current-pct");
-  const rp = document.getElementById("mixer-right-pct");
+  const lp = document.getElementById(prefix + "-left-pct");
+  const cp = document.getElementById(prefix + "-current-pct");
+  const rp = document.getElementById(prefix + "-right-pct");
 
   lp.textContent = leftPct + "%";
   cp.textContent = currentPct + "% v" + base;
@@ -587,91 +578,119 @@ function updateMixer() {
   rp.className = rightPct > 0 ? "active" : "";
 }
 
-function updateApiBadge() {
-  document.getElementById("api-badge").textContent = "v" + document.getElementById("api-slider").value;
+// --- Generic mixer slider wiring (works for both layout and api) ---
+function wireMixer(sliderId, service) {
+  const baseKey = service + "Base";
+  const balKey = service + "Balance";
+
+  // "input" fires while dragging — update visuals, no promotion
+  document.getElementById(sliderId).addEventListener("input", (e) => {
+    state[balKey] = parseInt(e.target.value);
+    updateMixer(service);
+    refreshGrid();
+
+    const body = {};
+    body[baseKey] = state[baseKey];
+    body[balKey] = state[balKey];
+    fetch(API + "/api/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(r => r.json()).then(s => { state = s; });
+  });
+
+  // "change" fires on release — check for promote/demote
+  document.getElementById(sliderId).addEventListener("change", async (e) => {
+    let bal = parseInt(e.target.value);
+
+    if (bal >= 100 && state[baseKey] < MAX_VERSION) {
+      state[baseKey]++;
+      bal = 50;
+      e.target.value = 50;
+    } else if (bal <= 0 && state[baseKey] > 1) {
+      state[baseKey]--;
+      bal = 50;
+      e.target.value = 50;
+    }
+
+    state[balKey] = bal;
+    updateMixer(service);
+
+    const body = {};
+    body[baseKey] = state[baseKey];
+    body[balKey] = bal;
+    await fetch(API + "/api/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(r => r.json()).then(s => { state = s; });
+
+    refreshGrid();
+  });
 }
 
-// --- Mixer slider ---
-// "input" fires while dragging — just update visuals, no promotion
-document.getElementById("mixer-slider").addEventListener("input", (e) => {
-  state.layoutBalance = parseInt(e.target.value);
-  updateMixer();
-  refreshGrid();
+wireMixer("mixer-slider", "layout");
+wireMixer("api-mixer-slider", "api");
 
-  // Fire-and-forget save (no await, keep dragging smooth)
-  fetch(API + "/api/global", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ layoutBase: state.layoutBase, layoutBalance: state.layoutBalance }),
-  }).then(r => r.json()).then(s => { state = s; });
-});
+// --- Jump to prev/next version instantly ---
+function makeJumper(service) {
+  const baseKey = service + "Base";
+  const balKey = service + "Balance";
+  const sliderId = service === "layout" ? "mixer-slider" : "api-mixer-slider";
 
-// "change" fires on release — check for promote/demote
-document.getElementById("mixer-slider").addEventListener("change", async (e) => {
-  let bal = parseInt(e.target.value);
+  return async function(direction) {
+    const newBase = state[baseKey] + direction;
+    if (newBase < 1 || newBase > MAX_VERSION) return;
+    state[baseKey] = newBase;
+    state[balKey] = 50;
+    document.getElementById(sliderId).value = 50;
+    updateMixer(service);
 
-  if (bal >= 100 && state.layoutBase < MAX_VERSION) {
-    state.layoutBase++;
-    bal = 50;
-    e.target.value = 50;
-  } else if (bal <= 0 && state.layoutBase > 1) {
-    state.layoutBase--;
-    bal = 50;
-    e.target.value = 50;
-  }
+    const body = {};
+    body[baseKey] = newBase;
+    body[balKey] = 50;
+    await fetch(API + "/api/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(r => r.json()).then(s => { state = s; });
 
-  state.layoutBalance = bal;
-  updateMixer();
+    refreshGrid();
+  };
+}
 
-  await fetch(API + "/api/global", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ layoutBase: state.layoutBase, layoutBalance: bal }),
-  }).then(r => r.json()).then(s => { state = s; });
-
-  syncDisabledSliders();
-  refreshGrid();
-});
-
-// --- API slider ---
-document.getElementById("api-slider").addEventListener("input", async (e) => {
-  const v = parseInt(e.target.value);
-  updateApiBadge();
-  await fetch(API + "/api/global", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apiVersion: v }),
-  }).then(r => r.json()).then(s => { state = s; });
-  syncDisabledSliders();
-  refreshGrid();
-});
+const jumpVersion = makeJumper("layout");
+const jumpApiVersion = makeJumper("api");
 
 // --- Presets ---
 async function resetAll() {
   await fetch(API + "/api/global", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ layoutBase: 1, layoutBalance: 50, apiVersion: 1 }),
+    body: JSON.stringify({ layoutBase: 1, layoutBalance: 50, apiBase: 1, apiBalance: 50 }),
   }).then(r => r.json()).then(s => { state = s; });
   document.getElementById("mixer-slider").value = 50;
-  document.getElementById("api-slider").value = 1;
-  updateMixer();
-  updateApiBadge();
-  syncDisabledSliders();
+  document.getElementById("api-mixer-slider").value = 50;
+  updateMixer("layout");
+  updateMixer("api");
   refreshGrid();
 }
 
 // --- Users ---
 let userCounter = 0;
 async function addUser() {
-  const input = document.getElementById("new-user-name");
-  const name = input.value.trim() || "User " + (++userCounter);
-  input.value = "";
+  const name = "User " + (++userCounter);
   const id = crypto.randomUUID().slice(0, 8);
-  const res = await fetch(API + "/api/user", {
+  await fetch(API + "/api/user", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, name }),
+  });
+  // Immediately pin to current base versions
+  const res = await fetch(API + "/api/user/" + id, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ layoutOverride: state.layoutBase, apiOverride: state.apiBase }),
   });
   state = await res.json();
   renderUsers();
@@ -697,21 +716,7 @@ async function setUserOverride(id, field, value) {
   refreshGrid();
 }
 
-async function clearOverride(id, field) {
-  const res = await fetch(API + "/api/clear/" + id + "/" + field, { method: "POST" });
-  state = await res.json();
-  renderUsers();
-  refreshGrid();
-}
 
-function toggleOverride(id, field, enabled) {
-  if (enabled) {
-    setUserOverride(id, field, state.layoutBase);
-    renderUsers();
-  } else {
-    clearOverride(id, field);
-  }
-}
 
 function renderUsers() {
   const container = document.getElementById("users-list");
@@ -722,8 +727,8 @@ function renderUsers() {
   }
 
   container.innerHTML = entries.map(([id, user]) => {
-    const pinned = user.layoutOverride !== undefined;
-    const layoutVal = pinned ? user.layoutOverride : state.layoutBase;
+    const layoutVal = user.layoutOverride ?? state.layoutBase;
+    const apiVal = user.apiOverride ?? state.apiBase;
     return \`
       <div class="user-card">
         <div class="user-card-header">
@@ -734,34 +739,24 @@ function renderUsers() {
           <button class="btn btn-sm btn-danger" onclick="removeUser('\${id}')">Remove</button>
         </div>
         <div class="user-slider-row">
-          <label class="toggle-switch" title="\${pinned ? 'Pinned to v' + layoutVal : 'Following global'}">
-            <input type="checkbox" \${pinned ? "checked" : ""}
-              onchange="toggleOverride('\${id}','layout',this.checked)">
-            <span class="toggle-track"></span>
-          </label>
+          <label>Layout</label>
           <input type="range" min="1" max="\${MAX_VERSION}" value="\${layoutVal}"
-            \${pinned ? "" : "disabled"}
             oninput="setUserOverride('\${id}','layout',this.value);this.nextElementSibling.textContent='v'+this.value">
-          <span class="version-badge \${pinned ? "" : "synced"}">v\${layoutVal}</span>
+          <span class="version-badge">v\${layoutVal}</span>
+        </div>
+        <div class="user-slider-row">
+          <label>API</label>
+          <input type="range" min="1" max="\${MAX_VERSION}" value="\${apiVal}"
+            class="api-slider"
+            oninput="setUserOverride('\${id}','api',this.value);this.nextElementSibling.textContent='v'+this.value">
+          <span class="version-badge">v\${apiVal}</span>
         </div>
       </div>
     \`;
   }).join("");
 }
 
-// --- Sync disabled sliders ---
-function syncDisabledSliders() {
-  document.querySelectorAll(".user-slider-row").forEach(row => {
-    const slider = row.querySelector("input[type=range]");
-    if (slider && slider.disabled) {
-      const lbl = row.querySelector("label").textContent.trim();
-      const globalVal = lbl === "Layout" ? state.layoutBase : state.apiVersion;
-      slider.value = globalVal;
-      const badge = row.querySelector(".version-badge");
-      if (badge) badge.textContent = "v" + globalVal;
-    }
-  });
-}
+
 
 // --- Grid ---
 function getCells() {
@@ -773,8 +768,8 @@ function getCells() {
     cells.push({
       id,
       label: user.name,
-      lv: user.layoutOverride ?? resolveLayoutVersion(i),
-      av: user.apiOverride ?? state.apiVersion,
+      lv: user.layoutOverride ?? resolveVersion(state.layoutBase, state.layoutBalance, id),
+      av: user.apiOverride ?? resolveVersion(state.apiBase, state.apiBalance, id),
     });
   }
 
@@ -782,8 +777,8 @@ function getCells() {
     cells.push({
       id: "default-" + i,
       label: "#" + (i + 1),
-      lv: resolveLayoutVersion(i),
-      av: state.apiVersion,
+      lv: resolveVersion(state.layoutBase, state.layoutBalance, "default-" + i),
+      av: resolveVersion(state.apiBase, state.apiBalance, "default-" + i),
     });
   }
   return cells;
